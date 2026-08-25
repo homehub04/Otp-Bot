@@ -1,0 +1,22 @@
+{
+  "name": "nzvimbo-otp-bot",
+  "version": "1.0.0",
+  "description": "Baileys WhatsApp bot that sends OTP codes for Nzvimbo",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
+    "@whiskeysockets/baileys": "^6.7.24",
+    "adm-zip": "^0.5.12",
+    "express": "^4.19.2",
+    "node-cache": "^5.1.2",
+    "pino": "^9.3.2",
+    "dotenv": "^16.4.5"
+  }
+}
