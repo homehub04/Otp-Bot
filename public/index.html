@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nzvimbo OTP Bot — Pair WhatsApp</title>
+<style>
+  :root{
+    --bg:#0B141A; --panel:#111B21; --line:#233138; --ink:#E9EDEF; --ink-soft:#8696A0;
+    --green:#25D366; --green-dim:#0B3D26; --danger:#E24A4A;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; min-height:100vh; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .panel{
+    width:100%; max-width:380px; background:var(--panel); border:1px solid var(--line);
+    border-radius:16px; padding:24px 22px 22px; text-align:center;
+  }
+  .badge{
+    display:inline-flex; align-items:center; gap:6px; font-size:11px; letter-spacing:0.04em;
+    text-transform:uppercase; padding:5px 12px; border-radius:20px; margin-bottom:16px;
+    background:var(--green-dim); color:var(--green); font-weight:600;
+  }
+  .badge.offline{ background:#3A1F1F; color:var(--danger); }
+  .badge .dot{ width:6px; height:6px; border-radius:50%; background:currentColor; }
+  h1{ font-size:17px; margin:0 0 4px; }
+  .sub{ font-size:12.5px; color:var(--ink-soft); margin:0 0 20px; line-height:1.5; }
+  #connected-view{ display:none; }
+  #connected-view .big-check{ font-size:44px; margin-bottom:10px; }
+  .field{
+    display:flex; gap:8px; margin-bottom:10px;
+  }
+  input[type=tel]{
+    flex:1; background:#0B141A; border:1px solid var(--line); border-radius:10px;
+    padding:11px 12px; color:var(--ink); font-size:14px; min-width:0;
+  }
+  input[type=tel]:focus{ outline:none; border-color:var(--green); }
+  button{
+    background:var(--green); color:#06140D; border:none; border-radius:10px;
+    padding:11px 16px; font-size:13.5px; font-weight:600; cursor:pointer; white-space:nowrap;
+  }
+  button:disabled{ opacity:0.5; cursor:not-allowed; }
+  .hint{ font-size:11px; color:var(--ink-soft); margin:6px 0 0; text-align:left; }
+  .code-box{
+    display:none; margin-top:16px; padding:16px; background:var(--green-dim); border-radius:12px;
+  }
+  .code-box .code{
+    font-family:'SF Mono', Menlo, monospace; font-size:26px; font-weight:700;
+    letter-spacing:0.12em; color:var(--green);
+  }
+  .code-box p{ font-size:11.5px; color:var(--ink-soft); margin:8px 0 0; line-height:1.5; }
+  .error{ color:var(--danger); font-size:12px; margin-top:8px; display:none; }
+</style>
+</head>
+<body>
+  <div class="panel">
+    <span id="status-badge" class="badge offline"><span class="dot"></span> Checking…</span>
+
+    <div id="pairing-view">
+      <h1>Pair your WhatsApp number</h1>
+      <p class="sub">This is the number that will send OTP codes.<br>Enter it below to get a linking code.</p>
+
+      <div class="field">
+        <input type="tel" id="phone-input" placeholder="e.g. 263771234567" autocomplete="off">
+        <button id="pair-btn" onclick="requestPairCode()">Get code</button>
+      </div>
+      <p class="hint">Country code, no + or spaces. In WhatsApp: Linked Devices → Link a Device → Link with phone number instead.</p>
+      <p class="error" id="pair-error"></p>
+
+      <div class="code-box" id="code-box">
+        <div class="code" id="pair-code"></div>
+        <p>Enter this in WhatsApp: <span id="countdown">60</span>s left — <span id="expired-msg" style="display:none;color:var(--danger);">expired, request a new one</span></p>
+      </div>
+    </div>
+
+    <div id="connected-view">
+      <div class="big-check">✅</div>
+      <h1>WhatsApp connected</h1>
+      <p class="sub">This number is live and sending OTP codes.</p>
+    </div>
+  </div>
+
+<script>
+  const badge = document.getElementById('status-badge');
+  const pairingView = document.getElementById('pairing-view');
+  const connectedView = document.getElementById('connected-view');
+  const pairBtn = document.getElementById('pair-btn');
+  const pairError = document.getElementById('pair-error');
+  const codeBox = document.getElementById('code-box');
+  const pairCodeEl = document.getElementById('pair-code');
+  const countdownEl = document.getElementById('countdown');
+  const expiredMsgEl = document.getElementById('expired-msg');
+
+  let countdownTimer = null;
+
+  function startCountdown(seconds) {
+    clearInterval(countdownTimer);
+    let remaining = seconds;
+    countdownEl.style.display = 'inline';
+    expiredMsgEl.style.display = 'none';
+    countdownEl.textContent = remaining;
+    countdownTimer = setInterval(() => {
+      remaining -= 1;
+      if (remaining <= 0) {
+        clearInterval(countdownTimer);
+        countdownEl.style.display = 'none';
+        expiredMsgEl.style.display = 'inline';
+        return;
+      }
+      countdownEl.textContent = remaining;
+    }, 1000);
+  }
+
+  async function refreshStatus() {
+    try {
+      const res = await fetch('/api/status');
+      const data = await res.json();
+
+      if (data.connected) {
+        badge.className = 'badge';
+        badge.innerHTML = '<span class="dot"></span> Connected';
+        pairingView.style.display = 'none';
+        connectedView.style.display = 'block';
+        return;
+      }
+
+      badge.className = 'badge offline';
+      badge.innerHTML = '<span class="dot"></span> Waiting to pair';
+
+      if (data.lastError) {
+        const e = data.lastError;
+        const parts = [e.reason, e.statusCode, e.message].filter(Boolean);
+        pairError.textContent = 'Last error: ' + (parts.join(' — ') || 'unknown');
+        pairError.style.display = 'block';
+      }
+    } catch (e) { /* transient — next poll will retry */ }
+  }
+
+  async function requestPairCode() {
+    const phone = document.getElementById('phone-input').value.trim();
+    pairError.style.display = 'none';
+    if (!phone) {
+      pairError.textContent = 'Enter a phone number first.';
+      pairError.style.display = 'block';
+      return;
+    }
+    pairBtn.disabled = true;
+    pairBtn.textContent = 'Requesting…';
+    try {
+      const res = await fetch('/api/pair-code', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to get pairing code');
+      pairCodeEl.textContent = data.code;
+      codeBox.style.display = 'block';
+      startCountdown(data.expiresInSeconds || 60);
+    } catch (e) {
+      pairError.textContent = e.message;
+      pairError.style.display = 'block';
+    } finally {
+      pairBtn.disabled = false;
+      pairBtn.textContent = 'Get code';
+    }
+  }
+
+  refreshStatus();
+  setInterval(refreshStatus, 4000);
+</script>
+</body>
+</html>
